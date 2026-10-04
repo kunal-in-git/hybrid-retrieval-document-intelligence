@@ -12,7 +12,11 @@ from pathlib import Path
 
 from .config import STORAGE_DIR
 from .ingestion.parser import extract_pages
-from .ingestion.chunker import create_chunks
+from .ingestion.structure import detect_sections
+from .ingestion.chunker import (
+    create_parent_chunks,
+    create_child_chunks,
+)
 
 REDIS_URL = os.getenv(
     "REDIS_URL",
@@ -27,6 +31,7 @@ redis_client = redis.Redis.from_url(
 )
 
 QUEUE_NAME = "document_ingestion"
+
 
 def process_job(job_id: str) -> None:
     db = SessionLocal()
@@ -72,32 +77,58 @@ def process_job(job_id: str) -> None:
 
         pages = extract_pages(file_path)
 
+        sections = detect_sections(pages)
+
+        parents = create_parent_chunks(sections)
+
+        children = create_child_chunks(parents)
+
         print(
-            f"Extracted {len(pages)} pages from {document.filename}",
+            f"Pages: {len(pages)} | "
+            f"Parents: {len(parents)} | "
+            f"Children: {len(children)}",
             flush=True,
         )
 
         job.stage = "CHUNKING"
         db.commit()
 
-        chunks = create_chunks(pages)
+        parent_rows = []
 
-        for chunk_data in chunks:
-            chunk = Chunk(
+        for index, parent_data in enumerate(parents):
+            parent = Chunk(
                 ingestion_job_id=job.id,
                 parent_id=None,
-                text=chunk_data["text"],
-                page=chunk_data["page"],
-                section=chunk_data["section"],
-                position=chunk_data["position"],
+                text=parent_data["text"],
+                page=parent_data["page"],
+                section=parent_data["section"],
+                position=index,
             )
 
-            db.add(chunk)
+            db.add(parent)
+            parent_rows.append(parent)
+
+        db.flush()
+
+        for child_data in children:
+
+            parent = parent_rows[child_data["parent_index"]]
+
+            child = Chunk(
+                ingestion_job_id=job.id,
+                parent_id=parent.id,
+                text=child_data["text"],
+                page=child_data["page"],
+                section=child_data["section"],
+                position=child_data["position"],
+            )
+
+            db.add(child)
 
         db.commit()
 
         print(
-            f"Created {len(chunks)} chunks from {document.filename}",
+            f"Created {len(children)} chunks from {document.filename}",
             flush=True,
         )
 
@@ -118,11 +149,7 @@ def process_job(job_id: str) -> None:
         db.rollback()
 
         try:
-            job = db.scalar(
-                select(IngestionJob).where(
-                    IngestionJob.id == job_id
-                )
-            )
+            job = db.scalar(select(IngestionJob).where(IngestionJob.id == job_id))
 
             if job:
                 job.status = "FAILED"
@@ -130,9 +157,7 @@ def process_job(job_id: str) -> None:
                 job.completed_at = datetime.now(timezone.utc)
 
                 document = db.scalar(
-                    select(Document).where(
-                        Document.id == job.document_id
-                    )
+                    select(Document).where(Document.id == job.document_id)
                 )
 
                 if document:
@@ -153,6 +178,7 @@ def process_job(job_id: str) -> None:
 
     finally:
         db.close()
+
 
 def main():
     print(
@@ -193,6 +219,7 @@ def main():
             )
 
             time.sleep(5)
+
 
 if __name__ == "__main__":
     main()
