@@ -7,3 +7,4 @@ alembic
 redis
 python-multipart
 pymupdf
+ollama

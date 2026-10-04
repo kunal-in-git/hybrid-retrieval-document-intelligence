@@ -32,6 +32,9 @@ services:
       context: ./backend
     ports:
       - "8000:8000"
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+      EMBEDDING_MODEL: nomic-embed-text
     volumes:
       - ./backend:/app
       - ./storage:/app/storage
@@ -44,6 +47,9 @@ services:
     build:
       context: ./backend
     command: python -m app.worker
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+      EMBEDDING_MODEL: nomic-embed-text
     volumes:
       - ./backend:/app
       - ./storage:/app/storage
@@ -51,7 +57,6 @@ services:
       - postgres
       - redis
       - opensearch
-
 
 volumes:
   postgres_data:
