@@ -1,0 +1,58 @@
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: hybrid_retrieval
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./storage:/app/storage
+    depends_on:
+      - postgres
+      - redis
+      - opensearch
+
+  worker:
+    build:
+      context: ./backend
+    command: python -m app.worker
+    volumes:
+      - ./backend:/app
+      - ./storage:/app/storage
+    depends_on:
+      - postgres
+      - redis
+      - opensearch
+
+
+volumes:
+  postgres_data:
+  opensearch_data:
