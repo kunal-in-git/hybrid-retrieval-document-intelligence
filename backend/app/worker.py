@@ -17,7 +17,7 @@ from .ingestion.chunker import (
 from .ingestion.parser import extract_pages
 from .ingestion.structure import detect_sections
 from .models import Chunk, Document, IngestionJob
-
+from .retrieval.indexer import index_document_chunks
 
 # --------------------------------------------------
 # Redis configuration
@@ -43,6 +43,7 @@ redis_client = redis.Redis.from_url(
 # Process one ingestion job
 # --------------------------------------------------
 
+
 def process_job(job_id: str) -> None:
     db = SessionLocal()
 
@@ -51,11 +52,7 @@ def process_job(job_id: str) -> None:
         # 1. Get ingestion job
         # --------------------------------------------
 
-        job = db.scalar(
-            select(IngestionJob).where(
-                IngestionJob.id == job_id
-            )
-        )
+        job = db.scalar(select(IngestionJob).where(IngestionJob.id == job_id))
 
         if job is None:
             print(
@@ -68,11 +65,7 @@ def process_job(job_id: str) -> None:
         # 2. Get document
         # --------------------------------------------
 
-        document = db.scalar(
-            select(Document).where(
-                Document.id == job.document_id
-            )
-        )
+        document = db.scalar(select(Document).where(Document.id == job.document_id))
 
         if document is None:
             job.status = "FAILED"
@@ -95,8 +88,7 @@ def process_job(job_id: str) -> None:
         db.commit()
 
         print(
-            f"Processing document {document.id}: "
-            f"{document.filename}",
+            f"Processing document {document.id}: " f"{document.filename}",
             flush=True,
         )
 
@@ -104,15 +96,10 @@ def process_job(job_id: str) -> None:
         # 4. Resolve document path
         # --------------------------------------------
 
-        file_path = (
-            Path(STORAGE_DIR)
-            / document.storage_key
-        )
+        file_path = Path(STORAGE_DIR) / document.storage_key
 
         if not file_path.exists():
-            raise FileNotFoundError(
-                f"Document file not found: {file_path}"
-            )
+            raise FileNotFoundError(f"Document file not found: {file_path}")
 
         # --------------------------------------------
         # 5. Parse PDF
@@ -129,9 +116,7 @@ def process_job(job_id: str) -> None:
         pages = extract_pages(file_path)
 
         if not pages:
-            raise ValueError(
-                "No text could be extracted from the PDF"
-            )
+            raise ValueError("No text could be extracted from the PDF")
 
         print(
             f"Extracted {len(pages)} pages",
@@ -152,13 +137,9 @@ def process_job(job_id: str) -> None:
 
         sections = detect_sections(pages)
 
-        parents = create_parent_chunks(
-            sections
-        )
+        parents = create_parent_chunks(sections)
 
-        children = create_child_chunks(
-            parents
-        )
+        children = create_child_chunks(parents)
 
         print(
             f"Pages: {len(pages)} | "
@@ -168,9 +149,7 @@ def process_job(job_id: str) -> None:
         )
 
         if not children:
-            raise ValueError(
-                "No child chunks were created from the document"
-            )
+            raise ValueError("No child chunks were created from the document")
 
         # --------------------------------------------
         # 7. Generate embeddings
@@ -180,19 +159,13 @@ def process_job(job_id: str) -> None:
         db.commit()
 
         print(
-            f"Generating embeddings for "
-            f"{len(children)} child chunks...",
+            f"Generating embeddings for " f"{len(children)} child chunks...",
             flush=True,
         )
 
-        child_texts = [
-            child["text"]
-            for child in children
-        ]
+        child_texts = [child["text"] for child in children]
 
-        embeddings = embed_documents(
-            child_texts
-        )
+        embeddings = embed_documents(child_texts)
 
         print(
             f"Generated {len(embeddings)} embeddings",
@@ -216,9 +189,7 @@ def process_job(job_id: str) -> None:
 
         expected_dimension = 768
 
-        for index, embedding in enumerate(
-            embeddings
-        ):
+        for index, embedding in enumerate(embeddings):
             if len(embedding) != expected_dimension:
                 raise ValueError(
                     f"Invalid embedding dimension "
@@ -228,8 +199,7 @@ def process_job(job_id: str) -> None:
                 )
 
         print(
-            f"Embedding dimension verified: "
-            f"{expected_dimension}",
+            f"Embedding dimension verified: " f"{expected_dimension}",
             flush=True,
         )
 
@@ -239,9 +209,7 @@ def process_job(job_id: str) -> None:
 
         parent_rows = []
 
-        for index, parent_data in enumerate(
-            parents
-        ):
+        for index, parent_data in enumerate(parents):
             parent = Chunk(
                 ingestion_job_id=job.id,
                 parent_id=None,
@@ -268,12 +236,8 @@ def process_job(job_id: str) -> None:
         # 12. Create child rows + embeddings
         # --------------------------------------------
 
-        for index, child_data in enumerate(
-            children
-        ):
-            parent = parent_rows[
-                child_data["parent_index"]
-            ]
+        for index, child_data in enumerate(children):
+            parent = parent_rows[child_data["parent_index"]]
 
             child = Chunk(
                 ingestion_job_id=job.id,
@@ -302,14 +266,34 @@ def process_job(job_id: str) -> None:
         )
 
         # --------------------------------------------
-        # 14. Mark job successful
+        # 14. Index child chunks into OpenSearch
+        # --------------------------------------------
+
+        job.stage = "INDEXING"
+        db.commit()
+
+        print(
+            f"Indexing {len(children)} child chunks " f"into OpenSearch...",
+            flush=True,
+        )
+
+        indexed_count = index_document_chunks(
+            db=db,
+            ingestion_job_id=job.id,
+        )
+
+        print(
+            f"Indexed {indexed_count} chunks into OpenSearch",
+            flush=True,
+        )
+
+        # --------------------------------------------
+        # 15. Mark job successful
         # --------------------------------------------
 
         job.status = "SUCCESS"
         job.stage = "COMPLETED"
-        job.completed_at = datetime.now(
-            timezone.utc
-        )
+        job.completed_at = datetime.now(timezone.utc)
 
         document.status = "READY"
 
@@ -329,23 +313,15 @@ def process_job(job_id: str) -> None:
         db.rollback()
 
         try:
-            job = db.scalar(
-                select(IngestionJob).where(
-                    IngestionJob.id == job_id
-                )
-            )
+            job = db.scalar(select(IngestionJob).where(IngestionJob.id == job_id))
 
             if job:
                 job.status = "FAILED"
                 job.error_message = str(exc)
-                job.completed_at = datetime.now(
-                    timezone.utc
-                )
+                job.completed_at = datetime.now(timezone.utc)
 
                 document = db.scalar(
-                    select(Document).where(
-                        Document.id == job.document_id
-                    )
+                    select(Document).where(Document.id == job.document_id)
                 )
 
                 if document:
@@ -356,8 +332,7 @@ def process_job(job_id: str) -> None:
         except Exception as failure_exc:
 
             print(
-                f"Failed to update failed job "
-                f"{job_id}: {failure_exc}",
+                f"Failed to update failed job " f"{job_id}: {failure_exc}",
                 flush=True,
             )
 
@@ -377,6 +352,7 @@ def process_job(job_id: str) -> None:
 # --------------------------------------------------
 # Worker main loop
 # --------------------------------------------------
+
 
 def main():
 

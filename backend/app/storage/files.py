@@ -1,7 +1,7 @@
 import hashlib
 from pathlib import Path
 
-from .config import STORAGE_DIR
+from ..config import STORAGE_DIR
 
 
 def calculate_sha256(file_path: Path) -> str:

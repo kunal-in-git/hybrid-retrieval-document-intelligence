@@ -17,7 +17,9 @@ services:
       - "6380:6379"
 
   opensearch:
-    image: opensearchproject/opensearch:3.8.0
+    build:
+      context: ./opensearch
+      dockerfile: Dockerfile
     environment:
       - discovery.type=single-node
       - DISABLE_SECURITY_PLUGIN=true
@@ -27,6 +29,16 @@ services:
     volumes:
       - opensearch_data:/usr/share/opensearch/data
 
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.8.0
+    ports:
+      - "5601:5601"
+    environment:
+      - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    depends_on:
+      - opensearch
+
   backend:
     build:
       context: ./backend
@@ -35,6 +47,7 @@ services:
     environment:
       OLLAMA_HOST: http://host.docker.internal:11434
       EMBEDDING_MODEL: nomic-embed-text
+      HF_HUB_DISABLE_XET: "1"
     volumes:
       - ./backend:/app
       - ./storage:/app/storage
@@ -42,6 +55,7 @@ services:
       - postgres
       - redis
       - opensearch
+
 
   worker:
     build:
@@ -57,7 +71,7 @@ services:
       - postgres
       - redis
       - opensearch
-
+  
 volumes:
   postgres_data:
   opensearch_data:

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Chunk
+from ..models import Chunk, IngestionJob, Document
 
 
 def expand_to_parents(
@@ -9,13 +9,19 @@ def expand_to_parents(
     results: list[dict],
 ) -> list[dict]:
     """
-    Convert retrieved child chunks into their parent chunks.
+    Convert retrieved child chunks into richer context objects.
 
-    Child chunks are used for retrieval because they are smaller
-    and more precise.
+    Retrieval happens on child chunks because they are smaller and
+    more precise.
 
-    Parent chunks are used for context because they provide more
-    surrounding information to the LLM.
+    The parent chunk is then fetched to provide surrounding context
+    to the LLM.
+
+    The returned context preserves:
+    - matched child text
+    - parent text
+    - document metadata
+    - retrieval/reranking metadata
     """
 
     if not results:
@@ -32,26 +38,34 @@ def expand_to_parents(
     if not parent_ids:
         return []
 
-    # Remove duplicate parent IDs while preserving order.
     unique_parent_ids = list(
         dict.fromkeys(parent_ids)
     )
 
-    parents = db.scalars(
-        select(Chunk).where(
+    rows = db.execute(
+        select(Chunk, IngestionJob, Document)
+        .join(
+            IngestionJob,
+            Chunk.ingestion_job_id == IngestionJob.id,
+        )
+        .join(
+            Document,
+            IngestionJob.document_id == Document.id,
+        )
+        .where(
             Chunk.id.in_(unique_parent_ids)
         )
     ).all()
 
-    # Convert database objects into lookup dictionary.
-    parent_by_id = {
-        str(parent.id): parent
-        for parent in parents
-    }
+    parent_by_id = {}
+
+    for chunk, _jobs, document in rows:
+        parent_by_id[str(chunk.id)] = {
+            "chunk": chunk,
+            "document": document,
+        }
 
     expanded_results = []
-
-    # Preserve the ranking order produced by retrieval.
     seen_parent_ids = set()
 
     for result in results:
@@ -63,32 +77,46 @@ def expand_to_parents(
 
         parent_id_str = str(parent_id)
 
-        # Multiple child chunks can belong to the same
-        # parent. We only want one parent context.
         if parent_id_str in seen_parent_ids:
             continue
 
-        parent = parent_by_id.get(parent_id_str)
+        parent_data = parent_by_id.get(parent_id_str)
 
-        if parent is None:
+        if parent_data is None:
             continue
+
+        parent = parent_data["chunk"]
+        document = parent_data["document"]
 
         seen_parent_ids.add(parent_id_str)
 
         expanded_results.append(
             {
+                # Document metadata
+                "document_id": str(document.id),
+                "filename": document.filename,
+
+                # Parent metadata
                 "parent_id": parent_id_str,
-                "text": parent.text,
+                "parent_text": parent.text,
                 "page": parent.page,
                 "section": parent.section,
                 "position": parent.position,
 
-                # Keep the child that caused this parent
-                # to be retrieved.
+                # Matched child
                 "matched_child_id": result["chunk_id"],
+                "matched_child_text": result["text"],
 
-                # Lower distance = better dense match.
-                "distance": result.get("distance"),
+                # Retrieval scores
+                "rrf_score": result.get("rrf_score"),
+                "rerank_score": result.get("rerank_score"),
+
+                # Retrieval ranks
+                "dense_rank": result.get("dense_rank"),
+                "bm25_rank": result.get("bm25_rank"),
+                "neural_sparse_rank": result.get(
+                    "neural_sparse_rank"
+                ),
             }
         )
 
