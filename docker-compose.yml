@@ -48,9 +48,11 @@ services:
       OLLAMA_HOST: http://host.docker.internal:11434
       EMBEDDING_MODEL: nomic-embed-text
       HF_HUB_DISABLE_XET: "1"
+      HF_HUB_OFFLINE: "1"
     volumes:
       - ./backend:/app
       - ./storage:/app/storage
+      - ~/.cache/huggingface:/root/.cache/huggingface
     depends_on:
       - postgres
       - redis
@@ -64,9 +66,11 @@ services:
     environment:
       OLLAMA_HOST: http://host.docker.internal:11434
       EMBEDDING_MODEL: nomic-embed-text
+      HF_HUB_OFFLINE: "1"
     volumes:
       - ./backend:/app
       - ./storage:/app/storage
+      - ~/.cache/huggingface:/root/.cache/huggingface
     depends_on:
       - postgres
       - redis
