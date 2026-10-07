@@ -1,10 +1,12 @@
+import styles from "./AnswerText.module.css";
+
 const CITATION_PATTERN = /(\[\d+\])/;
 
 export default function AnswerText({ answer, sourceCount, onCitationClick }) {
   const parts = answer.split(CITATION_PATTERN);
 
   return (
-    <p style={{ whiteSpace: "pre-wrap" }}>
+    <p className={styles.answer}>
       {parts.map((part, index) => {
         const match = part.match(/^\[(\d+)\]$/);
 
@@ -22,9 +24,11 @@ export default function AnswerText({ answer, sourceCount, onCitationClick }) {
           <button
             key={index}
             type="button"
+            className={styles.citation}
             onClick={() => onCitationClick(number)}
+            title={`Show source ${number}`}
           >
-            {part}
+            {number}
           </button>
         );
       })}

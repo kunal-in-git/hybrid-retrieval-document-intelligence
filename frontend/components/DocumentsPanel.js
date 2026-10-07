@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getDocuments, uploadDocument } from "@/lib/api";
+import styles from "./DocumentsPanel.module.css";
 
 const IN_PROGRESS = ["QUEUED", "PARSING", "CHUNKING", "EMBEDDING", "INDEXING"];
 
@@ -16,6 +17,12 @@ const STATUS_LABELS = {
 };
 
 const POLL_INTERVAL_MS = 2000;
+
+function badgeClass(status) {
+  if (status === "COMPLETED") return styles.ready;
+  if (status === "FAILED") return styles.failed;
+  return styles.progress;
+}
 
 export default function DocumentsPanel() {
   const [documents, setDocuments] = useState([]);
@@ -92,42 +99,77 @@ export default function DocumentsPanel() {
     }
   }
 
+  const processingCount = documents.filter((doc) =>
+    IN_PROGRESS.includes(doc.status)
+  ).length;
+
   return (
     <section>
-      <label>
-        Upload PDF:{" "}
-        <input
-          type="file"
-          accept="application/pdf"
-          onChange={handleFileChange}
-          disabled={uploading}
-        />
-      </label>
-      {uploading && <p>Uploading...</p>}
-      {error && <p>Error: {error}</p>}
+      <div className={styles.toolbar}>
+        <span className={styles.count}>
+          {documents.length} documents
+          {processingCount > 0 && ` · ${processingCount} processing`}
+        </span>
 
-      <table>
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Status</th>
-            <th>Uploaded</th>
-          </tr>
-        </thead>
-        <tbody>
-          {documents.map((doc) => (
-            <tr key={doc.document_id}>
-              <td>{doc.filename}</td>
-              <td>
-                {STATUS_LABELS[doc.status] || doc.status}
-                {IN_PROGRESS.includes(doc.status) && " ..."}
-                {doc.error_message && <div>{doc.error_message}</div>}
-              </td>
-              <td>{new Date(doc.created_at).toLocaleString()}</td>
+        {/* The label looks like a button; clicking it opens the hidden file input */}
+        <label
+          className={`btn ${styles.upload} ${uploading ? styles.disabled : ""}`}
+        >
+          {uploading ? "Uploading..." : "Upload PDF"}
+          <input
+            className={styles.fileInput}
+            type="file"
+            accept="application/pdf"
+            onChange={handleFileChange}
+            disabled={uploading}
+          />
+        </label>
+      </div>
+
+      {error && <p className="error">Error: {error}</p>}
+
+      <div className={`card ${styles.tableWrap}`}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Status</th>
+              <th>Uploaded</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {documents.map((doc) => (
+              <tr key={doc.document_id}>
+                <td className={styles.filename}>{doc.filename}</td>
+                <td>
+                  <span className={`${styles.badge} ${badgeClass(doc.status)}`}>
+                    {IN_PROGRESS.includes(doc.status) && (
+                      <span className={styles.pulse} />
+                    )}
+                    {STATUS_LABELS[doc.status] || doc.status}
+                  </span>
+                  {doc.error_message && (
+                    <div className={styles.errorMessage}>
+                      {doc.error_message}
+                    </div>
+                  )}
+                </td>
+                <td className={styles.date}>
+                  {new Date(doc.created_at).toLocaleString()}
+                </td>
+              </tr>
+            ))}
+
+            {documents.length === 0 && (
+              <tr>
+                <td colSpan={3} className={styles.empty}>
+                  No documents yet. Upload a PDF to get started.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

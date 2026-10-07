@@ -1,1 +1,16 @@
+# Corporate proxy certificate (machine-specific)
 zscaler-root-ca.pem
+
+# Uploaded documents: user data, never commit
+storage/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Local environment files
+.env
+.env.*
+
+# macOS
+.DS_Store

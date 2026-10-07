@@ -1,0 +1,72 @@
+.source {
+  padding: 16px 18px;
+  scroll-margin-top: 80px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Highlighted after clicking its citation */
+.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.filename {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.meta {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.section {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.score {
+  margin-left: auto;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.text {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.toggle {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}

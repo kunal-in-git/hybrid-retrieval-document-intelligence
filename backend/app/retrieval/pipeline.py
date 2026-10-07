@@ -10,6 +10,12 @@ from .fusion import rrf_fusion
 from .neural_sparse import neural_sparse_search
 from .reranker import rerank
 
+
+# Cross-encoder (ms-marco-MiniLM) scores are logits.
+# Observed: relevant passages score about -5 to +8, junk about -10 to -11.
+# Results below this score are not sent to the LLM.
+MIN_RERANK_SCORE = -7.0
+
 def hybrid_search(
     db: Session,
     query: str,
@@ -111,9 +117,17 @@ def hybrid_search(
 
     start_time = time.perf_counter()
 
+    # Only results the cross-encoder considers relevant become context.
+    # reranked_results itself is kept unfiltered for evaluation/inspection.
+    relevant_results = [
+        result
+        for result in reranked_results
+        if result["rerank_score"] >= MIN_RERANK_SCORE
+    ]
+
     parent_results = expand_to_parents(
         db=db,
-        results=reranked_results,
+        results=relevant_results,
     )[:context_top_k]
 
     parent_latency_ms = (

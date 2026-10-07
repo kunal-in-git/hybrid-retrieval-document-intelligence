@@ -1,4 +1,5 @@
 import { useState } from "react";
+import styles from "./RetrieverComparison.module.css";
 
 const COLUMNS = [
   { key: "dense_results", label: "Dense" },
@@ -24,40 +25,44 @@ export default function RetrieverComparison({ result }) {
   const [hoveredChunkId, setHoveredChunkId] = useState(null);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: `repeat(${COLUMNS.length}, 1fr)`,
-        gap: "8px",
-      }}
-    >
-      {COLUMNS.map((column) => (
-        <div key={column.key}>
-          <h4>{column.label}</h4>
+    // On narrow screens the five columns scroll sideways inside this box
+    <div className={styles.scroller}>
+      <div
+        className={styles.grid}
+        style={{
+          gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(170px, 1fr))`,
+        }}
+      >
+        {COLUMNS.map((column) => (
+          <div key={column.key}>
+            <h4 className={styles.columnTitle}>{column.label}</h4>
 
-          {result[column.key].slice(0, ROWS).map((item, index) => (
-            <div
-              key={item.chunk_id}
-              onMouseEnter={() => setHoveredChunkId(item.chunk_id)}
-              onMouseLeave={() => setHoveredChunkId(null)}
-              style={{
-                border: "1px solid #ccc",
-                padding: "6px",
-                marginBottom: "6px",
-                fontSize: "12px",
-                background:
-                  item.chunk_id === hoveredChunkId
-                    ? "rgba(37, 99, 235, 0.25)"
-                    : "transparent",
-              }}
-            >
-              <strong>#{index + 1}</strong> {item.filename} · p.{item.page}
-              {foundBy(item) && <div>found by: {foundBy(item)}</div>}
-              <div>{item.text.slice(0, 80)}</div>
-            </div>
-          ))}
-        </div>
-      ))}
+            {result[column.key].slice(0, ROWS).map((item, index) => (
+              <div
+                key={item.chunk_id}
+                className={`${styles.item} ${
+                  item.chunk_id === hoveredChunkId ? styles.hovered : ""
+                }`}
+                onMouseEnter={() => setHoveredChunkId(item.chunk_id)}
+                onMouseLeave={() => setHoveredChunkId(null)}
+              >
+                <div className={styles.itemHeader}>
+                  <span className={styles.rank}>#{index + 1}</span>
+                  <span className={styles.file}>
+                    {item.filename} · p.{item.page}
+                  </span>
+                </div>
+
+                {foundBy(item) && (
+                  <div className={styles.foundBy}>{foundBy(item)}</div>
+                )}
+
+                <div className={styles.snippet}>{item.text}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

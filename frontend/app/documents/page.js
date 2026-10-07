@@ -2,10 +2,13 @@ import DocumentsPanel from "@/components/DocumentsPanel";
 
 const DocumentsPage = () => {
   return (
-    <div>
-      <h1>Documents</h1>
+    <main className="container">
+      <h1 className="page-title">Documents</h1>
+      <p className="page-subtitle">
+        Upload PDFs and follow each one through the ingestion pipeline.
+      </p>
       <DocumentsPanel />
-    </div>
+    </main>
   );
 };
 

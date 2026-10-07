@@ -1,0 +1,45 @@
+.inspector {
+  margin-top: 28px;
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+/* Hide the default triangle and show Show/Hide text instead */
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary::after {
+  content: "Show";
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.inspector[open] .summary::after {
+  content: "Hide";
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 4px 18px 18px;
+}
+
+.subtitle {
+  margin-bottom: 10px;
+}
+
+.hint {
+  margin: -4px 0 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}

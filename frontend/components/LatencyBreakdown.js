@@ -1,3 +1,5 @@
+import styles from "./LatencyBreakdown.module.css";
+
 const STAGES = [
   { key: "dense_ms", label: "Dense (pgvector)" },
   { key: "bm25_ms", label: "BM25" },
@@ -5,7 +7,7 @@ const STAGES = [
   { key: "rrf_ms", label: "RRF fusion" },
   { key: "rerank_ms", label: "Cross-encoder rerank" },
   { key: "parent_ms", label: "Parent expansion" },
-  { key: "answer_ms", label: "LLM answer" },
+  { key: "answer_ms", label: "LLM answer", generation: true },
 ];
 
 export default function LatencyBreakdown({ latency }) {
@@ -16,25 +18,26 @@ export default function LatencyBreakdown({ latency }) {
         const percent = (ms / latency.total_ms) * 100;
 
         return (
-          <div key={stage.key} style={{ marginBottom: "6px" }}>
-            <div>
-              {stage.label}: {ms.toFixed(0)} ms
+          <div key={stage.key} className={styles.row}>
+            <span>{stage.label}</span>
+
+            <div className={styles.track}>
+              {/* Width depends on data, so it stays an inline style */}
+              <div
+                className={`${styles.bar} ${stage.generation ? styles.generation : ""}`}
+                style={{ width: `${percent}%` }}
+              />
             </div>
-            <div
-              style={{
-                background: "#2563eb",
-                height: "8px",
-                width: `${percent}%`,
-                minWidth: "2px",
-              }}
-            />
+
+            <span className={styles.value}>{ms.toFixed(0)} ms</span>
           </div>
         );
       })}
 
-      <p>
-        Total: {(latency.total_ms / 1000).toFixed(1)} s (retrieval{" "}
-        {latency.retrieval_total_ms.toFixed(0)} ms)
+      <p className={styles.total}>
+        Total {(latency.total_ms / 1000).toFixed(1)} s · retrieval{" "}
+        {latency.retrieval_total_ms.toFixed(0)} ms · generation{" "}
+        {latency.answer_ms.toFixed(0)} ms
       </p>
     </div>
   );

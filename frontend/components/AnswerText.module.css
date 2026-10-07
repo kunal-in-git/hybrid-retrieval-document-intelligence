@@ -1,0 +1,28 @@
+.answer {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+/* [1] markers rendered as small round "chips" */
+.citation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin: 0 2px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: 2px;
+  cursor: pointer;
+}
+
+.citation:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}

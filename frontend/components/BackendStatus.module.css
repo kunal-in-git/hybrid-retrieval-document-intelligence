@@ -1,0 +1,27 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.checking {
+  color: var(--text-muted);
+}
+
+.ok .dot {
+  background: var(--success);
+}
+
+.down {
+  color: var(--danger);
+}

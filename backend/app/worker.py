@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import redis
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from .config import STORAGE_DIR
 from .db import SessionLocal
@@ -18,6 +18,7 @@ from .ingestion.parser import extract_pages
 from .ingestion.structure import detect_sections
 from .models import Chunk, Document, IngestionJob
 from .retrieval.indexer import index_document_chunks
+from .storage.opensearch import INDEX_NAME, get_opensearch_client
 
 # --------------------------------------------------
 # Redis configuration
@@ -37,6 +38,53 @@ redis_client = redis.Redis.from_url(
     socket_connect_timeout=5,
     socket_timeout=None,
 )
+
+
+# --------------------------------------------------
+# Remove the output of a failed job
+# --------------------------------------------------
+
+
+def delete_job_chunks(db, job_id: str) -> None:
+    """
+    Delete every chunk a failed job wrote to PostgreSQL.
+
+    Without this, a job that fails at INDEXING leaves chunks
+    behind that dense search can still return.
+    """
+
+    # Children first: they reference their parent via parent_id
+    db.execute(
+        delete(Chunk).where(
+            Chunk.ingestion_job_id == job_id,
+            Chunk.parent_id.is_not(None),
+        )
+    )
+
+    db.execute(
+        delete(Chunk).where(
+            Chunk.ingestion_job_id == job_id,
+        )
+    )
+
+
+def delete_job_from_opensearch(job_id: str) -> None:
+    """
+    Delete any chunks of a failed job that were already
+    indexed into OpenSearch before the failure.
+    """
+
+    get_opensearch_client().delete_by_query(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "term": {
+                    "ingestion_job_id": str(job_id),
+                }
+            }
+        },
+        refresh=True,
+    )
 
 
 # --------------------------------------------------
@@ -318,12 +366,26 @@ def process_job(job_id: str) -> None:
                 job.status = "FAILED"
                 job.completed_at = datetime.now(timezone.utc)
 
+                delete_job_chunks(db, job_id)
+
                 db.commit()
 
         except Exception as failure_exc:
 
             print(
                 f"Failed to update failed job " f"{job_id}: {failure_exc}",
+                flush=True,
+            )
+
+        # Separate try: OpenSearch may be the reason the job failed
+        try:
+            delete_job_from_opensearch(job_id)
+
+        except Exception as cleanup_exc:
+
+            print(
+                f"Failed to remove OpenSearch chunks of failed job "
+                f"{job_id}: {cleanup_exc}",
                 flush=True,
             )
 

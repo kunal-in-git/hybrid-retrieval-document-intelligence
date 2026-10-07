@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { getHealth } from "@/lib/api";
+import styles from "./BackendStatus.module.css";
+
+const LABELS = {
+  checking: "Checking backend",
+  ok: "Backend online",
+  down: "Backend offline",
+};
 
 export default function BackendStatus() {
   const [status, setStatus] = useState("checking");
@@ -19,13 +26,10 @@ export default function BackendStatus() {
     check();
   }, []);
 
-  if (status === "checking") {
-    return <p>Checking backend...</p>;
-  }
-
-  if (status === "ok") {
-    return <p>Backend: connected</p>;
-  }
-
-  return <p>Backend: not reachable</p>;
+  return (
+    <span className={`${styles.status} ${styles[status]}`}>
+      <span className={styles.dot} />
+      {LABELS[status]}
+    </span>
+  );
 }

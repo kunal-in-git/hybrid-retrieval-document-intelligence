@@ -1,0 +1,63 @@
+.scroller {
+  overflow-x: auto;
+}
+
+.grid {
+  display: grid;
+  gap: 10px;
+}
+
+.columnTitle {
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Fixed height so rank #N lines up across all columns */
+.item {
+  height: 108px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.hovered {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.itemHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.rank {
+  font-weight: 700;
+}
+
+.file {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.foundBy {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+/* Show at most 3 lines of the chunk text */
+.snippet {
+  margin-top: 4px;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

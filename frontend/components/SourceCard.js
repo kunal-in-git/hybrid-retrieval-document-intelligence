@@ -1,4 +1,5 @@
 import { useState } from "react";
+import styles from "./SourceCard.module.css";
 
 export default function SourceCard({ context, number, active }) {
   const [expanded, setExpanded] = useState(false);
@@ -6,26 +7,32 @@ export default function SourceCard({ context, number, active }) {
   return (
     <article
       id={`source-${number}`}
-      style={{
-        border: active ? "2px solid #2563eb" : "1px solid #ccc",
-        padding: "12px",
-        marginTop: "12px",
-      }}
+      className={`card ${styles.source} ${active ? styles.active : ""}`}
     >
-      <p>
-        <strong>
-          [{number}] {context.filename}
-        </strong>{" "}
-        · page {context.page}
-        {context.section && <> · {context.section}</>}
-      </p>
+      <div className={styles.header}>
+        <span className={styles.number}>{number}</span>
+        <span className={styles.filename}>{context.filename}</span>
+        <span className={styles.meta}>page {context.page}</span>
+        {context.section && (
+          <span className={styles.section}>{context.section}</span>
+        )}
+        {context.rerank_score != null && (
+          <span className={styles.score} title="Cross-encoder rerank score">
+            rerank {context.rerank_score.toFixed(2)}
+          </span>
+        )}
+      </div>
 
-      <p style={{ whiteSpace: "pre-wrap" }}>
+      <p className={styles.text}>
         {expanded ? context.parent_text : context.matched_child_text}
       </p>
 
       {context.parent_text !== context.matched_child_text && (
-        <button type="button" onClick={() => setExpanded(!expanded)}>
+        <button
+          type="button"
+          className={`btn-link ${styles.toggle}`}
+          onClick={() => setExpanded(!expanded)}
+        >
           {expanded ? "Show matched passage" : "Show full context"}
         </button>
       )}
