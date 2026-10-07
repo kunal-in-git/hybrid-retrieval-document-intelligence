@@ -35,7 +35,7 @@ def detect_sections(pages: list[dict]) -> list[dict]:
     sections = []
 
     current_section = None
-    current_page = None  # page where the current section STARTS
+    current_page = None  # page the current piece of text is on
     current_text = []
 
     def flush():
@@ -54,6 +54,13 @@ def detect_sections(pages: list[dict]) -> list[dict]:
 
     for page in pages:
 
+        # A page break closes the current piece of text, so every
+        # piece belongs to exactly one page and citations can point
+        # to the right page. The section name carries over.
+        flush()
+        current_text.clear()
+        current_page = page["page"]
+
         for line in page["text"].splitlines():
             line = line.strip()
 
@@ -68,7 +75,6 @@ def detect_sections(pages: list[dict]) -> list[dict]:
                 flush()
 
                 current_section = line
-                current_page = page["page"]
 
                 # Keep the heading in the text so it is searchable
                 # (e.g. BM25 can match "title page" to "TITLE PAGE").
@@ -76,10 +82,6 @@ def detect_sections(pages: list[dict]) -> list[dict]:
                 current_text.append(line)
 
                 continue
-
-            # Text before the first heading starts on this page
-            if current_page is None:
-                current_page = page["page"]
 
             current_text.append(line)
 
