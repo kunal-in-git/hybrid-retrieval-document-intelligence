@@ -4,6 +4,7 @@ from datetime import datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     DateTime,
+    Enum,
     ForeignKey,
     Integer,
     String,
@@ -27,7 +28,6 @@ from .db import Base
 # content_hash
 # file_size
 # mime_type
-# status
 # active_job_id
 # created_at
 # updated_at
@@ -40,8 +40,7 @@ from .db import Base
 # id
 # document_id
 # document_name
-# status
-# stage
+# status  (QUEUED -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> COMPLETED / FAILED)
 # retry_count
 # error_message
 # created_at
@@ -104,12 +103,6 @@ class Document(Base):
         nullable=False,
     )
 
-    status: Mapped[str] = mapped_column(
-        String(30),
-        nullable=False,
-        default="UPLOADED",
-    )
-
     active_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
@@ -160,15 +153,27 @@ class IngestionJob(Base):
         nullable=False,
     )
 
+    # Single source of truth for ingestion progress.
+    #
+    # QUEUED -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> COMPLETED
+    # Any step can end in FAILED; error_message is prefixed
+    # with the step that failed (e.g. "CHUNKING: ...").
+    #
+    # Stored as a Postgres ENUM, so the database rejects
+    # any value outside this list.
     status: Mapped[str] = mapped_column(
-        String(30),
+        Enum(
+            "QUEUED",
+            "PARSING",
+            "CHUNKING",
+            "EMBEDDING",
+            "INDEXING",
+            "COMPLETED",
+            "FAILED",
+            name="job_status",
+        ),
         nullable=False,
         default="QUEUED",
-    )
-
-    stage: Mapped[str | None] = mapped_column(
-        String(50),
-        nullable=True,
     )
 
     retry_count: Mapped[int] = mapped_column(

@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -100,9 +100,22 @@ async def upload_document(
     if existing_document is not None:
 
         # -----------------------------------------------------
-        # Existing document was successfully processed
+        # The document's state is its active job's status
         # -----------------------------------------------------
-        if existing_document.status == "READY":
+        active_job = None
+
+        if existing_document.active_job_id is not None:
+            active_job = db.get(
+                IngestionJob,
+                existing_document.active_job_id,
+            )
+
+        active_status = active_job.status if active_job else None
+
+        # -----------------------------------------------------
+        # Already successfully ingested
+        # -----------------------------------------------------
+        if active_status == "COMPLETED":
 
             file_path.unlink(missing_ok=True)
 
@@ -115,11 +128,13 @@ async def upload_document(
             )
 
         # -----------------------------------------------------
-        # Existing document is currently being processed
+        # Currently being ingested
         # -----------------------------------------------------
-        if existing_document.status in {
-            "UPLOADED",
-            "PROCESSING",
+        if active_status in {
+            "QUEUED",
+            "PARSING",
+            "CHUNKING",
+            "EMBEDDING",
             "INDEXING",
         }:
 
@@ -134,63 +149,79 @@ async def upload_document(
             )
 
         # -----------------------------------------------------
-        # Existing document previously failed
+        # Previous attempt failed (or never started)
         #
-        # We retry ingestion by creating a NEW JOB.
-        # We do NOT create another Document.
+        # Retry by creating a NEW job for the SAME document.
+        # The original stored file is reused (same content hash),
+        # so the newly uploaded duplicate is deleted.
         # -----------------------------------------------------
-        if existing_document.status == "FAILED":
+        file_path.unlink(missing_ok=True)
 
-            # Delete the newly uploaded duplicate file.
-            # We can reuse the original stored file because
-            # the content hash is identical.
-            file_path.unlink(missing_ok=True)
+        job = IngestionJob(
+            document_id=existing_document.id,
+            document_name=existing_document.filename,
+            status="QUEUED",
+            retry_count=0,
+        )
 
-            job = IngestionJob(
-                document_id=existing_document.id,
-                document_name=existing_document.filename,
-                status="QUEUED",
-                stage=None,
-                retry_count=0,
+        db.add(job)
+        db.flush()
+
+        existing_document.active_job_id = job.id
+
+        db.commit()
+
+        try:
+            enqueue_ingestion_job(str(job.id))
+
+        except Exception as exc:
+            job.status = "FAILED"
+            job.error_message = (
+                f"QUEUED: Failed to enqueue ingestion job: {exc}"
             )
-
-            db.add(job)
-            db.flush()
-
-            existing_document.active_job_id = job.id
-            existing_document.status = "UPLOADED"
 
             db.commit()
 
-            try:
-                enqueue_ingestion_job(str(job.id))
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Document exists but the retry ingestion "
+                    "job could not be queued"
+                ),
+            )
 
-            except Exception as exc:
-                job.status = "FAILED"
-                job.error_message = (
-                    f"Failed to enqueue ingestion job: {exc}"
-                )
+        return {
+            "document_id": str(existing_document.id),
+            "job_id": str(job.id),
+            "filename": existing_document.filename,
+            "content_hash": existing_document.content_hash,
+            "status": job.status,
+            "message": "Previous ingestion failed. A new ingestion job has been queued.",
+        }
 
-                existing_document.status = "FAILED"
+    # =========================================================
+    # Filename already used by a DIFFERENT document
+    #
+    # documents.filename is UNIQUE (ingestion_jobs.document_name
+    # references it), so inserting would fail with a 500.
+    # =========================================================
+    filename_taken = db.scalar(
+        select(Document).where(
+            Document.filename == safe_filename
+        )
+    )
 
-                db.commit()
+    if filename_taken is not None:
 
-                raise HTTPException(
-                    status_code=500,
-                    detail=(
-                        "Document exists but the retry ingestion "
-                        "job could not be queued"
-                    ),
-                )
+        file_path.unlink(missing_ok=True)
 
-            return {
-                "document_id": str(existing_document.id),
-                "job_id": str(job.id),
-                "filename": existing_document.filename,
-                "content_hash": existing_document.content_hash,
-                "status": existing_document.status,
-                "message": "Previous ingestion failed. A new ingestion job has been queued.",
-            }
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A different document named '{safe_filename}' "
+                f"already exists. Rename the file and upload again."
+            ),
+        )
 
     # =========================================================
     # CASE 2: New document
@@ -206,7 +237,6 @@ async def upload_document(
         content_hash=content_hash,
         file_size=len(file_bytes),
         mime_type=file.content_type,
-        status="UPLOADED",
     )
 
     db.add(document)
@@ -219,7 +249,6 @@ async def upload_document(
         document_id=document.id,
         document_name=document.filename,
         status="QUEUED",
-        stage=None,
         retry_count=0,
     )
 
@@ -245,10 +274,8 @@ async def upload_document(
     except Exception as exc:
         job.status = "FAILED"
         job.error_message = (
-            f"Failed to enqueue ingestion job: {exc}"
+            f"QUEUED: Failed to enqueue ingestion job: {exc}"
         )
-
-        document.status = "FAILED"
 
         db.commit()
 
@@ -268,6 +295,74 @@ async def upload_document(
         "job_id": str(job.id),
         "filename": document.filename,
         "content_hash": document.content_hash,
-        "status": document.status,
+        "status": job.status,
         "message": "Document uploaded and ingestion job queued.",
+    }
+
+
+@router.get("")
+def list_documents(
+    document_ids: list[uuid.UUID] | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    # ---------------------------------------------------------
+    # 1. Latest ingestion job per document
+    #
+    # DISTINCT ON (document_id) keeps the first row of each
+    # document_id group; ordering by created_at DESC makes
+    # that first row the newest job.
+    #
+    # Optional filter: when document_ids are given (polling),
+    # only those documents are returned.
+    #
+    #   GET /documents                                   -> all
+    #   GET /documents?document_ids=<id>&document_ids=<id> -> only these
+    # ---------------------------------------------------------
+    query = (
+        select(IngestionJob)
+        .distinct(IngestionJob.document_id)
+        .order_by(
+            IngestionJob.document_id,
+            IngestionJob.created_at.desc(),
+        )
+    )
+
+    if document_ids:
+        query = query.where(
+            IngestionJob.document_id.in_(document_ids)
+        )
+
+    latest_jobs = db.scalars(query).all()
+
+    # ---------------------------------------------------------
+    # 2. Newest first
+    #
+    # DISTINCT ON forces the SQL ORDER BY to start with
+    # document_id, so we sort by time afterwards in Python.
+    # ---------------------------------------------------------
+    latest_jobs = sorted(
+        latest_jobs,
+        key=lambda job: job.created_at,
+        reverse=True,
+    )
+
+    # ---------------------------------------------------------
+    # 3. Build response
+    # ---------------------------------------------------------
+    documents = []
+
+    for job in latest_jobs:
+        documents.append(
+            {
+                "document_id": str(job.document_id),
+                "filename": job.document_name,
+                "job_id": str(job.id),
+                "status": job.status,
+                "error_message": job.error_message,
+                "created_at": job.created_at.isoformat(),
+            }
+        )
+
+    return {
+        "documents": documents,
     }

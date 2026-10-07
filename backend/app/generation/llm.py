@@ -15,6 +15,43 @@ GENERATION_MODEL = os.getenv(
 
 client = ollama.Client(host=OLLAMA_HOST)
 
+SYSTEM_PROMPT = """You answer questions using ONLY the numbered sources the user provides.
+
+Rules:
+- Every sentence that states a fact must end with the number of the source that supports it, in square brackets, like [1] or [2].
+- Only use numbers of sources that were provided.
+- Do not use outside knowledge.
+- If the sources answer the question fully or partly, give that answer. The source text may contain formatting noise from PDF extraction; read past it.
+- Only if no source is relevant, say: "I could not find this in the documents."
+- Keep the answer concise.
+
+Example of the required format:
+The study title must appear on the title page [1]. The sponsor's name is also required [1][3]."""
+
+
+def build_context_text(
+    contexts: list[dict],
+) -> str:
+    """
+    Number each parent context so the model can cite it.
+
+    The number shown here ([1], [2], ...) is exactly the
+    citation format we ask the model to use, and it maps
+    to contexts[number - 1] in the API response.
+    """
+
+    parts = []
+
+    for index, context in enumerate(contexts, start=1):
+        parts.append(
+            f"[{index}] {context.get('filename')}, "
+            f"page {context.get('page')}, "
+            f"section: {context.get('section')}\n"
+            f"{context.get('parent_text', '')}"
+        )
+
+    return "\n\n".join(parts)
+
 
 def generate_answer(
     query: str,
@@ -27,61 +64,25 @@ def generate_answer(
             "in the provided documents."
         )
 
-    context_parts = []
-
-    for index, context in enumerate(contexts, start=1):
-
-        context_parts.append(
-            f"""
-[Context {index}]
-
-Page: {context.get("page")}
-Section: {context.get("section")}
-
-Relevant passage:
-{context.get("matched_child_text", "")}
-
-Surrounding context:
-{context.get("parent_text", "")}
-""".strip()
-        )
-
-    context_text = "\n\n".join(context_parts)
-
-    prompt = f"""
-You are a document question-answering assistant.
-
-Answer the user's question using ONLY the provided document context.
-
-Rules:
-1. Do not use outside knowledge.
-2. Do not invent facts.
-3. If the answer cannot be found in the provided context,
-   clearly say that it was not found.
-4. Prefer the relevant passage when answering.
-5. Use the surrounding context to understand the relevant passage.
-6. Cite supporting claims using [1], [2], [3], etc.
-7. The citation number must correspond exactly to the Context number.
-8. Only cite a context when it supports the claim.
-9. Do not write "Supporting claim:".
-10. Do not write "[Context 1]", "[Context 2]", etc. in the answer.
-11. Keep the answer concise and factual.
-
-User question:
-{query}
-
-Document context:
-
-{context_text}
-"""
+    context_text = build_context_text(contexts)
 
     response = client.chat(
         model=GENERATION_MODEL,
+        options={
+            "temperature": 0,
+        },
         messages=[
             {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            },
+            {
                 "role": "user",
-                "content": prompt,
-            }
+                "content": (
+                    f"Sources:\n\n{context_text}\n\n"
+                    f"Question: {query}"
+                ),
+            },
         ],
     )
 

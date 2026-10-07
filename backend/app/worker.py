@@ -69,21 +69,22 @@ def process_job(job_id: str) -> None:
 
         if document is None:
             job.status = "FAILED"
-            job.error_message = "Document not found"
+            job.error_message = "QUEUED: Document not found"
             job.completed_at = datetime.now(timezone.utc)
 
             db.commit()
             return
 
         # --------------------------------------------
-        # 3. Mark job as processing
+        # 3. Mark job as started (first step: PARSING)
+        #
+        # Each status is committed BEFORE its step runs, so
+        # if a step fails, the committed status tells us
+        # which step it was (used in the error handler).
         # --------------------------------------------
 
-        job.status = "PROCESSING"
-        job.stage = "PARSING"
+        job.status = "PARSING"
         job.started_at = datetime.now(timezone.utc)
-
-        document.status = "PROCESSING"
 
         db.commit()
 
@@ -102,11 +103,8 @@ def process_job(job_id: str) -> None:
             raise FileNotFoundError(f"Document file not found: {file_path}")
 
         # --------------------------------------------
-        # 5. Parse PDF
+        # 5. Parse PDF (status is already PARSING)
         # --------------------------------------------
-
-        job.stage = "PARSING"
-        db.commit()
 
         print(
             f"Parsing {document.filename}...",
@@ -127,7 +125,7 @@ def process_job(job_id: str) -> None:
         # 6. Chunk document
         # --------------------------------------------
 
-        job.stage = "CHUNKING"
+        job.status = "CHUNKING"
         db.commit()
 
         print(
@@ -155,7 +153,7 @@ def process_job(job_id: str) -> None:
         # 7. Generate embeddings
         # --------------------------------------------
 
-        job.stage = "EMBEDDING"
+        job.status = "EMBEDDING"
         db.commit()
 
         print(
@@ -269,7 +267,7 @@ def process_job(job_id: str) -> None:
         # 14. Index child chunks into OpenSearch
         # --------------------------------------------
 
-        job.stage = "INDEXING"
+        job.status = "INDEXING"
         db.commit()
 
         print(
@@ -291,11 +289,8 @@ def process_job(job_id: str) -> None:
         # 15. Mark job successful
         # --------------------------------------------
 
-        job.status = "SUCCESS"
-        job.stage = "COMPLETED"
+        job.status = "COMPLETED"
         job.completed_at = datetime.now(timezone.utc)
-
-        document.status = "READY"
 
         db.commit()
 
@@ -316,16 +311,12 @@ def process_job(job_id: str) -> None:
             job = db.scalar(select(IngestionJob).where(IngestionJob.id == job_id))
 
             if job:
+                # After rollback, job.status is the last COMMITTED
+                # step, i.e. the step that was running when it failed.
+                # Record it BEFORE overwriting the status with FAILED.
+                job.error_message = f"{job.status}: {exc}"
                 job.status = "FAILED"
-                job.error_message = str(exc)
                 job.completed_at = datetime.now(timezone.utc)
-
-                document = db.scalar(
-                    select(Document).where(Document.id == job.document_id)
-                )
-
-                if document:
-                    document.status = "FAILED"
 
                 db.commit()
 
